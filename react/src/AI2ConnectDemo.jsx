@@ -11,6 +11,7 @@ import {
   Line, Area, ResponsiveContainer, CartesianGrid,
   ReferenceLine, ReferenceArea
 } from "recharts";
+import logo from "./AI2ConnectLogoMitrand.jpg";
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 
@@ -1332,7 +1333,7 @@ export default function AI2ConnectDemo() {
           <div className="flex items-center gap-8 h-16">
             {/* Logo */}
             <div className="flex items-center gap-2.5 flex-shrink-0">
-              <img src="/src/AI2ConnectLogoMitrand.jpg" alt="AI2Connect"
+              <img src={logo} alt="AI2Connect"
                 className="h-10 w-auto object-contain" />
               <div className="leading-tight">
                 <p className="font-extrabold text-[#1E3A5F] text-base tracking-tight leading-none">AI2Connect</p>
