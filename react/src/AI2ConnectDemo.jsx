@@ -8,7 +8,8 @@ import {
 } from "lucide-react";
 import {
   LineChart, AreaChart, XAxis, YAxis, Tooltip, Legend,
-  Line, Area, ResponsiveContainer, CartesianGrid
+  Line, Area, ResponsiveContainer, CartesianGrid,
+  ReferenceLine, ReferenceArea
 } from "recharts";
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
@@ -195,6 +196,7 @@ const AI_STEPS_SHORT = [
 function generateOrderVolume(from) {
   const data = [];
   const base = new Date(from || "2026-03-16");
+  const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   for (let i = 0; i < 30; i++) {
     const d = new Date(base);
     d.setDate(d.getDate() + i);
@@ -207,6 +209,10 @@ function generateOrderVolume(from) {
     data.push({
       date: `${d.getDate().toString().padStart(2, "0")}.${(d.getMonth() + 1).toString().padStart(2, "0")}`,
       orders: volume,
+      lower: Math.round(volume * 0.87),
+      upper: Math.round(volume * 1.13),
+      isWeekend,
+      dayLabel: DAY_LABELS[dow],
     });
   }
   return data;
@@ -224,6 +230,8 @@ function generateContainerForecast(days) {
     data.push({
       date: `${d.getDate().toString().padStart(2, "0")}.${(d.getMonth() + 1).toString().padStart(2, "0")}`,
       "Forecasted Need": need,
+      "Need Upper": Math.round(need * 1.1),
+      "Need Lower": Math.round(need * 0.9),
       "Current Stock": stock,
     });
   }
@@ -768,6 +776,20 @@ function PredictivePlanningTab() {
   const [done, setDone] = useState(false);
   const chartData = generateOrderVolume(fromDate);
   const peakEntry = chartData.reduce((a, b) => a.orders > b.orders ? a : b, chartData[0]);
+  const weekdayData = chartData.filter(d => !d.isWeekend);
+  const weekendData = chartData.filter(d => d.isWeekend);
+  const weekdayAvg = Math.round(weekdayData.reduce((sum, d) => sum + d.orders, 0) / weekdayData.length);
+  const weekendAvg = Math.round(weekendData.reduce((sum, d) => sum + d.orders, 0) / weekendData.length);
+  const weekendAreas = [];
+  for (let i = 0; i < chartData.length; i++) {
+    if (chartData[i].isWeekend) {
+      if (weekendAreas.length > 0 && chartData[i - 1]?.isWeekend) {
+        weekendAreas[weekendAreas.length - 1].x2 = chartData[i].date;
+      } else {
+        weekendAreas.push({ x1: chartData[i].date, x2: chartData[i].date });
+      }
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -808,18 +830,74 @@ function PredictivePlanningTab() {
         <div className="space-y-4 animate-[fadeIn_0.5s_ease-out]">
           {/* Chart */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <h3 className="font-semibold text-[#1E3A5F] text-sm mb-4 flex items-center gap-2">
-              <BarChart2 className="w-4 h-4 text-blue-500" /> Projected Daily Order Volume
-            </h3>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="font-semibold text-[#1E3A5F] text-sm flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-blue-500" /> Projected Daily Order Volume
+              </h3>
+              <div className="flex gap-4">
+                <span className="text-xs text-gray-500">Peak: <strong className="text-red-500">{peakEntry.date} ({peakEntry.orders})</strong></span>
+                <span className="text-xs text-gray-500">Wkday avg: <strong className="text-green-600">{weekdayAvg}</strong></span>
+                <span className="text-xs text-gray-500">Wkend avg: <strong className="text-amber-600">{weekendAvg}</strong></span>
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 40, left: 15, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="orderGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94A3B8" }} interval={4} />
-                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }} />
-                <Line type="monotone" dataKey="orders" stroke="#3B82F6" strokeWidth={2.5} dot={false} name="Order Volume" />
-              </LineChart>
+                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} label={{ value: "Orders / Day", angle: -90, position: "insideLeft", dx: -10, style: { fontSize: 10, fill: "#94A3B8" } }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    if (!d) return null;
+                    return (
+                      <div style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                        <p style={{ fontWeight: 600, color: "#1E3A5F", marginBottom: 4 }}>{d.dayLabel}, {label}</p>
+                        <p style={{ color: "#3B82F6" }}>Orders: <strong>{d.orders}</strong></p>
+                        <p style={{ color: "#94A3B8", fontSize: 11 }}>Estimate range: {d.lower}–{d.upper}</p>
+                        {d.isWeekend && <p style={{ color: "#D97706", fontSize: 11, marginTop: 2 }}>Weekend — reduced volume</p>}
+                      </div>
+                    );
+                  }}
+                />
+                {weekendAreas.map((area, i) => (
+                  <ReferenceArea key={i} x1={area.x1} x2={area.x2} fill="#FEF3C7" fillOpacity={0.6} />
+                ))}
+                <ReferenceLine y={weekdayAvg} stroke="#10B981" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: `Avg ${weekdayAvg}`, position: "right", fontSize: 10, fill: "#10B981" }} />
+                <ReferenceLine x={peakEntry.date} stroke="#EF4444" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "Peak", position: "insideTopRight", fontSize: 10, fill: "#EF4444" }} />
+                <Area type="monotone" dataKey="upper" stroke="none" fill="#DBEAFE" fillOpacity={0.4} legendType="none" />
+                <Area type="monotone" dataKey="lower" stroke="none" fill="white" fillOpacity={1} legendType="none" />
+                <Area type="monotone" dataKey="orders" stroke="#3B82F6" fill="url(#orderGrad)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: "#3B82F6" }} name="Order Volume" />
+              </AreaChart>
             </ResponsiveContainer>
+            <div className="flex items-center justify-center gap-6 mt-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#3B82F6" strokeWidth="2.5" /></svg>
+                <span>Projected Orders</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="w-5 h-2.5 rounded" style={{ background: "#DBEAFE", border: "1px solid #BFDBFE" }}></div>
+                <span>Confidence Range</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#10B981" strokeWidth="2" strokeDasharray="5,3" /></svg>
+                <span>Weekday Average</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="w-5 h-2.5 rounded" style={{ background: "#FEF3C7", border: "1px solid #FDE68A" }}></div>
+                <span>Weekend</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#EF4444" strokeWidth="2" strokeDasharray="4,3" /></svg>
+                <span>Peak Day</span>
+              </div>
+            </div>
           </div>
 
           {/* Stat cards */}
@@ -878,6 +956,11 @@ function ContainerForecastingTab() {
   const procurementDate = forecastPeriod === "Next 30 days" ? "27.03.2026"
     : forecastPeriod === "Next 90 days" ? "01.05.2026" : "05.07.2026";
 
+  const crossoverEntry = chartData.find(d => d["Forecasted Need"] > d["Current Stock"]);
+  const maxNeed = Math.max(...chartData.map(d => d["Forecasted Need"]));
+  const currentStock = chartData[0]?.["Current Stock"] ?? 0;
+  const safetyThreshold = Math.round(currentStock * 0.88);
+
   return (
     <div className="space-y-4">
       {/* Input panel */}
@@ -925,11 +1008,21 @@ function ContainerForecastingTab() {
         <div className="space-y-4 animate-[fadeIn_0.5s_ease-out]">
           {/* Chart */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <h3 className="font-semibold text-[#1E3A5F] text-sm mb-4 flex items-center gap-2">
-              <BarChart2 className="w-4 h-4 text-blue-500" /> Container Demand Forecast — {containerType}
-            </h3>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="font-semibold text-[#1E3A5F] text-sm flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-blue-500" /> Container Demand Forecast — {containerType}
+              </h3>
+              <div className="flex gap-4">
+                <span className="text-xs text-gray-500">Current Stock: <strong className="text-slate-600">{currentStock}</strong></span>
+                <span className="text-xs text-gray-500">Peak Need: <strong className="text-blue-600">{maxNeed}</strong></span>
+                {crossoverEntry
+                  ? <span className="text-xs text-gray-500">Shortfall from: <strong className="text-red-500">{crossoverEntry.date}</strong></span>
+                  : <span className="text-xs text-green-600 font-medium">Stock sufficient</span>
+                }
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 60, left: 15, bottom: 5 }}>
                 <defs>
                   <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.2} />
@@ -942,13 +1035,68 @@ function ContainerForecastingTab() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94A3B8" }} interval={3} />
-                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Area type="monotone" dataKey="Forecasted Need" stroke="#3B82F6" fill="url(#blueGrad)" strokeWidth={2.5} />
-                <Area type="monotone" dataKey="Current Stock" stroke="#94A3B8" fill="url(#grayGrad)" strokeWidth={2} />
+                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} label={{ value: "Units", angle: -90, position: "insideLeft", dx: -10, style: { fontSize: 10, fill: "#94A3B8" } }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    const need = d?.["Forecasted Need"];
+                    const stock = d?.["Current Stock"];
+                    const gap = (need != null && stock != null) ? need - stock : null;
+                    return (
+                      <div style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                        <p style={{ fontWeight: 600, color: "#1E3A5F", marginBottom: 4 }}>{label}</p>
+                        <p style={{ color: "#3B82F6" }}>Forecasted Need: <strong>{need}</strong></p>
+                        <p style={{ color: "#64748B" }}>Current Stock: <strong>{stock}</strong></p>
+                        {gap !== null && (
+                          <p style={{ color: gap > 0 ? "#EF4444" : "#10B981", fontSize: 11, marginTop: 4, fontWeight: 600 }}>
+                            {gap > 0 ? `Shortfall: ${gap} units` : `Surplus: ${Math.abs(gap)} units`}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                {/* Shortfall zone */}
+                {crossoverEntry && (
+                  <ReferenceArea x1={crossoverEntry.date} fill="#FEF2F2" fillOpacity={0.55} />
+                )}
+                {/* Safety threshold */}
+                <ReferenceLine y={safetyThreshold} stroke="#F59E0B" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: `Safety ${safetyThreshold}`, position: "right", fontSize: 10, fill: "#F59E0B" }} />
+                {/* Crossover marker */}
+                {crossoverEntry && (
+                  <ReferenceLine x={crossoverEntry.date} stroke="#EF4444" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "Shortfall", position: "insideTopRight", fontSize: 10, fill: "#EF4444" }} />
+                )}
+                {/* Confidence band for forecasted need */}
+                <Area type="monotone" dataKey="Need Upper" stroke="none" fill="#DBEAFE" fillOpacity={0.35} legendType="none" />
+                <Area type="monotone" dataKey="Need Lower" stroke="none" fill="white" fillOpacity={1} legendType="none" />
+                {/* Main series */}
+                <Area type="monotone" dataKey="Forecasted Need" stroke="#3B82F6" fill="url(#blueGrad)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: "#3B82F6" }} />
+                <Area type="monotone" dataKey="Current Stock" stroke="#94A3B8" fill="url(#grayGrad)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: "#94A3B8" }} />
               </AreaChart>
             </ResponsiveContainer>
+            <div className="flex items-center justify-center gap-6 mt-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#3B82F6" strokeWidth="2.5" /></svg>
+                <span>Forecasted Need</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="w-5 h-2.5 rounded" style={{ background: "#DBEAFE", border: "1px solid #BFDBFE" }}></div>
+                <span>Forecast Range</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#94A3B8" strokeWidth="2" /></svg>
+                <span>Current Stock</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#F59E0B" strokeWidth="2" strokeDasharray="5,3" /></svg>
+                <span>Safety Threshold</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="w-5 h-2.5 rounded" style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}></div>
+                <span>Shortfall Zone</span>
+              </div>
+            </div>
           </div>
 
           {/* Alert card */}
@@ -1247,7 +1395,7 @@ export default function AI2ConnectDemo() {
       <footer className="border-t border-gray-200 mt-8 py-4 bg-white">
         <div className="max-w-screen-xl mx-auto px-6 flex items-center justify-between">
           <p className="text-xs text-gray-400">
-            AI2Connect Platform — Demo prepared for <strong className="text-gray-500">Reinhard Josef Lemke, MWA Solutions</strong>
+            AI2Connect Platform — Demo prepared for MWA Solutions
           </p>
           <p className="text-xs text-gray-400">All data shown is simulated for demonstration purposes</p>
         </div>
